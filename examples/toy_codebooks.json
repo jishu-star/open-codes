@@ -1,0 +1,71 @@
+{
+  "research_question": "How did Physics Lab's online community emerge?",
+  "groups": {
+    "human": ["human-a", "human-b", "human-c"],
+    "machine": ["item-level", "chunk-level"]
+  },
+  "codebooks": {
+    "human-a": [
+      {
+        "label": "welcome newcomers",
+        "examples": ["A teacher answered a first-time poster the same day."]
+      },
+      {
+        "label": "sharing lesson files",
+        "examples": ["Someone uploaded a worksheet other teachers reused."]
+      }
+    ],
+    "human-b": [
+      {
+        "label": "welcome newcomers",
+        "examples": ["Moderators pinned a start-here thread."]
+      },
+      {
+        "label": "sharing lesson files",
+        "examples": ["A lab guide was revised after classroom use."]
+      },
+      {
+        "label": "designers reply in public",
+        "examples": ["A designer explained a bug in the group chat."]
+      }
+    ],
+    "human-c": [
+      {
+        "label": "Welcome Newcomers",
+        "examples": ["An old member introduced a teacher who had just joined."]
+      },
+      {
+        "label": "feature requests",
+        "examples": ["Teachers asked for a way to share classes."]
+      }
+    ],
+    "item-level": [
+      {
+        "label": "welcome newcomers",
+        "examples": ["A teacher answered a first-time poster the same day."]
+      },
+      {
+        "label": "sharing lesson files",
+        "examples": ["Someone uploaded a worksheet other teachers reused."]
+      },
+      {
+        "label": "designers reply in public",
+        "examples": ["A designer explained a bug in the group chat."]
+      },
+      {
+        "label": "feature requests",
+        "examples": ["Teachers asked for a way to share classes."]
+      }
+    ],
+    "chunk-level": [
+      {
+        "label": "welcome newcomers",
+        "examples": ["Moderators pinned a start-here thread."]
+      },
+      {
+        "label": "bug reports",
+        "examples": ["Several messages were only about a broken login."]
+      }
+    ]
+  }
+}

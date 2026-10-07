@@ -1,0 +1,29 @@
+[project]
+name = "opencodes"
+version = "0.1.0"
+description = "Measure inductive open codes by merging codebooks into an aggregated code space and scoring Coverage, Overlap, Novelty, and Divergence."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "open-codes" }]
+dependencies = [
+  "numpy>=1.26",
+  "scipy>=1.11",
+]
+
+[project.optional-dependencies]
+embeddings = ["sentence-transformers>=2.7"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+opencodes = "opencodes.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
