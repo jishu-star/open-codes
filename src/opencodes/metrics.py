@@ -102,7 +102,12 @@ def evaluate_codebooks(
                 weight=0.0,
                 n_codes=sum(sizes[member] for member in members),
                 consolidated=_consolidated_count(aggregated, member_set),
-                novel_mask=_novel_mask(aggregated, coder_names, owners=member_set),
+                # The novel set is a property of the aggregated space, not of the
+                # row being scored, so a group uses the same mask as a coder:
+                # concepts exactly one coder found. Scoping it to the group
+                # instead would make the numerator and denominator the same set
+                # and every group would score exactly 1.
+                novel_mask=_novel_mask(aggregated, coder_names, owners=None),
                 owned_mask=_owned_mask(aggregated, member_set),
                 baseline_weights=weight_vector,
                 member_indexes=member_indexes,
@@ -183,7 +188,14 @@ def _group_observations(codes: list[Code], members: set[str], neighbors: list[li
 
 
 def _novel_mask(codes: list[Code], coders: list[str], owners: set[str] | None) -> np.ndarray:
-    """A code is novel when nobody outside the coder (or group) identified it."""
+    """A code is novel when exactly one coder identified it.
+
+    ``owners`` narrows the mask to concepts held only inside that set. It is
+    kept for callers that want a group-relative novel set, but note that
+    scoring a group against its own novel set is vacuous: the numerator and
+    denominator of Novelty coincide and the metric returns 1. Pass ``None`` to
+    score any row against the shared novel set.
+    """
     coder_set = set(coders)
     mask = np.zeros(len(codes), dtype=bool)
     for index, code in enumerate(codes):
