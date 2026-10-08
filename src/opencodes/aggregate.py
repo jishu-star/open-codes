@@ -34,6 +34,7 @@ def aggregate_codebooks(
     upper: float = 0.55,
     research_question: str = "",
     max_rounds: int = 12,
+    penalty_mode: str = "heuristic",
 ) -> AggregateResult:
     """Merge codebooks through the stages requested by ``stage`` (1 through 4).
 
@@ -45,6 +46,11 @@ def aggregate_codebooks(
        each merged concept.
     4. The same label-plus-definition merge is repeated with the two-threshold
        penalty cut (``lower``, ``upper``) until a round merges nothing.
+
+    ``penalty_mode`` selects stage 4's example penalty; see
+    :func:`opencodes.cluster.apply_example_penalty`. The default follows the
+    clustering heuristic that accompanies the paper, ``"paper"`` follows the
+    paper's printed Algorithm 1, and the two differ substantially.
     """
     if stage not in (1, 2, 3, 4):
         raise ValueError("stage must be 1, 2, 3, or 4")
@@ -84,6 +90,7 @@ def aggregate_codebooks(
                 [set(code.examples) for code in codes],
                 lower,
                 upper,
+                penalty_mode=penalty_mode,
             )
             codes = _merge_groups(codes, groups, writer=writer, research_question=research_question)
             history.append(len(codes))

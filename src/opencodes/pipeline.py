@@ -35,8 +35,16 @@ def evaluate(
     neighbor_threshold: float | None = None,
     research_question: str = "",
     groups: dict[str, list[str]] | None = None,
+    penalty_mode: str = "heuristic",
+    novelty_mode: str = "share",
 ) -> Evaluation:
-    """Build the aggregated code space and score every codebook against it."""
+    """Build the aggregated code space and score every codebook against it.
+
+    ``penalty_mode`` selects stage 4's example penalty and ``novelty_mode`` how
+    Novelty's numerator is taken; see
+    :func:`opencodes.cluster.apply_example_penalty` and
+    :func:`opencodes.metrics.evaluate_codebooks`.
+    """
     aggregated = aggregate_codebooks(
         codebooks,
         embedder=embedder,
@@ -45,6 +53,7 @@ def evaluate(
         lower=lower,
         upper=upper,
         research_question=research_question,
+        penalty_mode=penalty_mode,
     )
     metrics = evaluate_codebooks(
         aggregated.codes,
@@ -52,6 +61,7 @@ def evaluate(
         codebooks,
         neighbor_threshold=upper if neighbor_threshold is None else neighbor_threshold,
         groups=groups,
+        novelty_mode=novelty_mode,
     )
     return Evaluation(
         aggregated=aggregated,

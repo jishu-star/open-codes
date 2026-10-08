@@ -5,9 +5,15 @@ from __future__ import annotations
 import math
 
 import numpy as np
+import pytest
 
 from opencodes.aggregate import aggregate_codebooks
-from opencodes.cluster import clusters_with_penalties, unique_example_fraction
+from opencodes.cluster import (
+    apply_example_penalty,
+    clusters_with_penalties,
+    shared_example_fraction,
+    unique_example_fraction,
+)
 from opencodes.embed import HashingEmbedder, TableEmbedder, cosine_distance_matrix
 from opencodes.metrics import codebook_weights, evaluate_codebooks, jensen_shannon_distance
 from opencodes.pipeline import evaluate
@@ -30,7 +36,9 @@ def _unit(x: float, y: float, z: float = 0.0) -> list[float]:
 def test_identical_strings_have_zero_cosine_distance():
     vectors = HashingEmbedder().embed(["peer support", "peer support", "pricing complaint"])
     distance = cosine_distance_matrix(vectors)
-    assert distance[0, 1] == 0.0
+    # Normalising then taking a dot product leaves float noise of order 1e-16,
+    # so identity is asserted to tolerance rather than exactly.
+    assert distance[0, 1] == pytest.approx(0.0, abs=1e-12)
     assert distance[0, 2] > 0.2
 
 
@@ -220,3 +228,123 @@ def test_stage4_merge_uses_shared_excerpts():
     )
     assert len(merged) == 1
     assert len(disjoint) == 2
+
+
+def test_group_novelty_is_a_share_not_a_constant():
+    """A group scored against its own novel set would always return 1.
+
+    Regression test: Novelty's novel set is a property of the aggregated space,
+    so a group row must be scored against the concepts exactly one coder found,
+    the same set an individual coder is scored against. Scoping the set to the
+    group makes the numerator and denominator coincide and every group reports
+    100%, which is what this package used to do.
+    """
+    table = TableEmbedder(
+        {
+            "alpha": _unit(1, 0),
+            "beta": _unit(0, 1),
+            "gamma": _unit(-1, 0),
+            "delta": _unit(0, -1),
+        }
+    )
+    # Every code is held by exactly one coder, so all four are novel. The human
+    # group owns two of them and the machine group the other two.
+    books = [
+        _book("ann", ["alpha"]),
+        _book("bo", ["beta"]),
+        _book("m1", ["gamma"]),
+        _book("m2", ["delta"]),
+    ]
+    result = evaluate(
+        books,
+        embedder=table,
+        stage=1,
+        neighbor_threshold=0.1,
+        groups={"human": ["ann", "bo"], "machine": ["m1", "m2"]},
+    )
+    by_name = {metric.coder: metric for metric in result.metrics}
+    human = by_name["group: human"].novelty
+    machine = by_name["group: machine"].novelty
+
+    # Neither group holds all of the novel mass, so neither can score 1.
+    assert 0.0 < human < 1.0
+    assert 0.0 < machine < 1.0
+    # The groups partition the coders and every novel code has one owner, so
+    # their shares exhaust the novel mass.
+    assert human + machine == pytest.approx(1.0)
+
+
+def test_individual_novelty_shares_sum_to_one():
+    """Novelty is a share of the uniquely-held mass, so the coders exhaust it."""
+    table = TableEmbedder(
+        {"alpha": _unit(1, 0), "beta": _unit(0, 1), "gamma": _unit(-1, 0)}
+    )
+    books = [_book("ann", ["alpha"]), _book("bo", ["beta"]), _book("cy", ["gamma"])]
+    result = evaluate(books, embedder=table, stage=1, neighbor_threshold=0.1)
+    total = sum(metric.novelty for metric in result.metrics)
+    assert total == pytest.approx(1.0)
+
+
+def test_penalty_mode_paper_reverses_the_example_penalty():
+    """The printed Algorithm 1 and the shipped heuristic move merging opposite ways.
+
+    Two codes sharing every excerpt get no penalty under the heuristic (nothing
+    is unique) but the maximum penalty under the paper's printed formula (the
+    overlap is total).
+    """
+    distance = np.array([[0.0, 0.45], [0.45, 0.0]])
+    examples = [{"e1", "e2"}, {"e1", "e2"}]
+
+    heuristic = apply_example_penalty(distance, examples, 0.32, 0.55)
+    paper = apply_example_penalty(
+        distance, examples, 0.32, 0.55, penalty_mode="paper"
+    )
+    assert heuristic[0, 1] == pytest.approx(0.45)
+    assert paper[0, 1] == pytest.approx(0.45 + (0.55 - 0.32))
+    assert paper[0, 1] > heuristic[0, 1]
+
+    with pytest.raises(ValueError):
+        apply_example_penalty(distance, examples, 0.32, 0.55, penalty_mode="nope")
+
+
+def test_shared_and_unique_example_fractions_are_complementary():
+    left, right = {"a", "b", "c"}, {"b", "c", "d"}
+    assert shared_example_fraction(left, right) + unique_example_fraction(
+        left, right
+    ) == pytest.approx(1.0)
+    assert shared_example_fraction(set(), set()) == 0.0
+
+
+def test_novelty_mode_credited_exceeds_the_share_and_is_not_a_decomposition():
+    """Credited Novelty lets a neighbouring row earn partial credit.
+
+    The share reading sums to 1 across coders, which pins its mean at 1/n and
+    makes it unable to register a change in the merge. The credited reading
+    sums above 1, so its mean can move. The paper's published Novelty figures
+    sum to 128.88%, so only the credited reading can reproduce them.
+    """
+    # Three codes, one per coder, all mutual neighbours under a loose cutoff.
+    codes = [
+        Code(label="alpha", owners={"ann"}),
+        Code(label="beta", owners={"bo"}),
+        Code(label="gamma", owners={"cy"}),
+    ]
+    vectors = np.array([_unit(1, 0, 0), _unit(0.9, 0.44, 0), _unit(0.9, 0, 0.44)])
+    books = [_book("ann", ["alpha"]), _book("bo", ["beta"]), _book("cy", ["gamma"])]
+
+    share = evaluate_codebooks(codes, vectors, books, neighbor_threshold=0.9)
+    credited = evaluate_codebooks(
+        codes, vectors, books, neighbor_threshold=0.9, novelty_mode="credited"
+    )
+    share_total = sum(metric.novelty for metric in share)
+    credited_total = sum(metric.novelty for metric in credited)
+
+    assert share_total == pytest.approx(1.0)
+    assert credited_total > share_total
+    # Every row gains, because each owns one novel code and neighbours the rest.
+    by_share = {m.coder: m.novelty for m in share}
+    for metric in credited:
+        assert metric.novelty > by_share[metric.coder]
+
+    with pytest.raises(ValueError):
+        evaluate_codebooks(codes, vectors, books, novelty_mode="nope")
