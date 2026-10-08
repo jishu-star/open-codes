@@ -42,6 +42,7 @@ def evaluate_codebooks(
     codebooks: list[Codebook],
     neighbor_threshold: float = 0.55,
     groups: dict[str, list[str]] | None = None,
+    novelty_mode: str = "share",
 ) -> list[CoderMetrics]:
     """Score each codebook, then each named group, against ``aggregated``.
 
@@ -54,7 +55,31 @@ def evaluate_codebooks(
     Divergence is the Jensen-Shannon distance, ``sqrt(JSD)`` with the natural
     log. Its maximum is ``sqrt(ln 2)`` which is about 0.833. The paper prints
     this value times 100.
+
+    ``novelty_mode`` chooses how Novelty's numerator is taken, and the two have
+    different properties:
+
+    ``"share"`` (default)
+        Only concepts the row owns count, which is the paper's printed
+        Algorithm 5 -- its numerator runs over ``c in csp_x``, and a coder's
+        observation on a code they own is 1. Novelty is then each row's share
+        of the uniquely-held mass, so the shares sum to 1 across coders. That
+        makes it a clean decomposition, but it also means the *average* Novelty
+        is fixed at ``1/n`` whatever the merging stage does, so Novelty cannot
+        show a stage effect under this reading.
+
+    ``"credited"``
+        Observations are summed over every novel concept, so a row earns
+        partial credit for a novel concept it neighbours but does not own. The
+        totals then exceed 1 and vary with the merge, which is what the paper's
+        published figures do: its eight coders sum to 128.88% at Condition 1
+        and 118.29% at Condition 4, and its Table 5 reports a significant stage
+        effect. Those numbers are unreachable under ``"share"``, so the paper's
+        own results indicate this is the variant it ran -- in tension with the
+        ``c in csp_x`` restriction it prints.
     """
+    if novelty_mode not in ("share", "credited"):
+        raise ValueError("novelty_mode must be 'share' or 'credited'")
     if not aggregated:
         return []
     coder_names = [codebook.name for codebook in codebooks]
@@ -79,6 +104,7 @@ def evaluate_codebooks(
             owned_mask=_owned_mask(aggregated, {name}),
             baseline_weights=weight_vector,
             member_indexes=np.array([index]),
+            novelty_mode=novelty_mode,
         )
         for index, name in enumerate(coder_names)
     ]
@@ -111,6 +137,7 @@ def evaluate_codebooks(
                 owned_mask=_owned_mask(aggregated, member_set),
                 baseline_weights=weight_vector,
                 member_indexes=member_indexes,
+                novelty_mode=novelty_mode,
             )
         )
     return results
@@ -227,6 +254,7 @@ def _metrics_for(
     owned_mask: np.ndarray,
     baseline_weights: np.ndarray,
     member_indexes: np.ndarray,
+    novelty_mode: str = "share",
 ) -> CoderMetrics:
     observed = observations[index]
     total = float(score.sum())
@@ -239,14 +267,17 @@ def _metrics_for(
     baseline_total = float(baseline.sum())
     overlap = float(observed @ baseline) / baseline_total if baseline_total > 0 else 0.0
 
-    # Novelty counts concepts this coder introduced and nobody else identified.
-    # Neighbor credit belongs to coverage, not to the unique-contribution share.
-    contributed = novel_mask & owned_mask
+    # Novelty counts concepts nobody else identified. Under "share" only the
+    # ones this row owns count, so the rows decompose the novel mass; under
+    # "credited" a neighbouring row earns partial credit too.
     novel_mass = float(score[novel_mask].sum()) if novel_mask.any() else 0.0
-    if novel_mass > 0:
-        novelty = float(score[contributed].sum()) / novel_mass
-    else:
+    if novel_mass <= 0:
         novelty = 0.0
+    elif novelty_mode == "credited":
+        novelty = float((observed[novel_mask] * score[novel_mask]).sum()) / novel_mass
+    else:
+        contributed = novel_mask & owned_mask
+        novelty = float(score[contributed].sum()) / novel_mass
 
     divergence = jensen_shannon_distance(baseline, observed)
     return CoderMetrics(

@@ -313,3 +313,38 @@ def test_shared_and_unique_example_fractions_are_complementary():
         left, right
     ) == pytest.approx(1.0)
     assert shared_example_fraction(set(), set()) == 0.0
+
+
+def test_novelty_mode_credited_exceeds_the_share_and_is_not_a_decomposition():
+    """Credited Novelty lets a neighbouring row earn partial credit.
+
+    The share reading sums to 1 across coders, which pins its mean at 1/n and
+    makes it unable to register a change in the merge. The credited reading
+    sums above 1, so its mean can move. The paper's published Novelty figures
+    sum to 128.88%, so only the credited reading can reproduce them.
+    """
+    # Three codes, one per coder, all mutual neighbours under a loose cutoff.
+    codes = [
+        Code(label="alpha", owners={"ann"}),
+        Code(label="beta", owners={"bo"}),
+        Code(label="gamma", owners={"cy"}),
+    ]
+    vectors = np.array([_unit(1, 0, 0), _unit(0.9, 0.44, 0), _unit(0.9, 0, 0.44)])
+    books = [_book("ann", ["alpha"]), _book("bo", ["beta"]), _book("cy", ["gamma"])]
+
+    share = evaluate_codebooks(codes, vectors, books, neighbor_threshold=0.9)
+    credited = evaluate_codebooks(
+        codes, vectors, books, neighbor_threshold=0.9, novelty_mode="credited"
+    )
+    share_total = sum(metric.novelty for metric in share)
+    credited_total = sum(metric.novelty for metric in credited)
+
+    assert share_total == pytest.approx(1.0)
+    assert credited_total > share_total
+    # Every row gains, because each owns one novel code and neighbours the rest.
+    by_share = {m.coder: m.novelty for m in share}
+    for metric in credited:
+        assert metric.novelty > by_share[metric.coder]
+
+    with pytest.raises(ValueError):
+        evaluate_codebooks(codes, vectors, books, novelty_mode="nope")
